@@ -1,0 +1,6 @@
+REVIEW_SIGN = ([str, list, list, list, list, str], None)
+REVIEW_STRING_SIGN = ([str, ..., list], 3)
+REVIEW_MEDIA_SIGN = ([str, list, str, ...], 4)
+REVIEW_ASPECTS_SIGN = ([list, str, ...,int], 16)
+MEDIA_SIGN = ([str, int, int,..., list], 44)
+AUTHOR_SIGN = ([str, str, list, str, None, int, int, None, list, int, list], None)

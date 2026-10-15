@@ -129,8 +129,8 @@ async def get_reviews_data(fid, place_id, session, gkey, source_path="", paginat
     url = "https://www.google.com/maps/_/MapsWizUi/data/batchexecute"
     payloads = generate_freq(fid, place_id, pagination_token=pagination_token, rpcid=rpcids, page_plus_one=page, perpage=perpage)
     reviews_data_response = await session.post(url, params=params, data=payloads)
-    # print(reviews_data_response.request.headers)
     reviews_data_normalized = utils.normalize_raw_response(reviews_data_response)
+    print(json.dumps(reviews_data_normalized))
     reviews = parse_reviews_data(reviews_data_normalized)
     return reviews
 
@@ -188,6 +188,7 @@ async def get_reviews(fid, place_id, gkey=None, sess=None, max_count=10, paginat
     for data in await asyncio.gather(*tasks):
         if data:
             reviews.extend(data.get("reviews", []))
+            print("got reviews: ", data.get("reviews", []))
     return reviews
 
 

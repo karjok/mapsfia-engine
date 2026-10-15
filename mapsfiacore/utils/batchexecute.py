@@ -62,16 +62,12 @@ def get_place_review_overview_rpc(fid:str)->list:
 
 def get_freq(payload:list, rpcid=""):
     freq_payloads_json = json.dumps(payload, separators=(",",":"))
-    freq_data = [
-        [
-            [
-                rpcid,
-                freq_payloads_json,
-                None,
-                "generic"
-            ]
-        ]
-    ]
+    freq_data = [[[
+        rpcid,
+        freq_payloads_json,
+        None,
+        "generic"
+    ]]]
     freq_data_json = json.dumps(freq_data, separators=(",",":"))
     freq = {
         "f.req": freq_data_json

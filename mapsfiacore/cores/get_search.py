@@ -1,8 +1,10 @@
 from mapsfiacore.utils import utils
-from mapsfiacore.utils import pb_nested
+from mapsfiacore.scripts import pb_nested
 from mapsfiacore.models.places import Place
 from mapsfiacore.utils.field_parser import parse_place_field
 from urllib.parse import unquote, urlencode
+from curl_cffi.requests import AsyncSession
+import asyncio
 import json
 import math
 import time
@@ -22,13 +24,23 @@ PLACE_RECORD_LEN = 260
 def random_session_token():
     return "".join(random.choices(string.ascii_letters + string.digits, k=23))
 
-def build_pb(lat, lng, perpage:int=10, limit:int=None, next_session=None, ppk=None):
+def _field(nodes, num):
+    for n in nodes:
+        if n[0] == num:
+            return n
+    return None
+
+def _insert_after(nodes, num, node):
+    for i, n in enumerate(nodes):
+        if n[0] == num:
+            nodes.insert(i + 1, node)
+            return
+    nodes.append(node)
+
+def build_pb(lat, lng, perpage:int=20, limit:int=None, next_session=None, ppk=None, offset:int=0):
     c_lat, c_lng, rng = utils.calculate_camera(lat, lng)
     sess = utils.generate_random_session_token()
-    rn = utils.generate_random_number(100)
-    rnx = utils.generate_random_number(999999)
 
-    yyyymmdd = time.strftime("%Y-%m-%d")
     w,h = [1920,933]
     
     PB_PARTS = (
@@ -37,7 +49,7 @@ def build_pb(lat, lng, perpage:int=10, limit:int=None, next_session=None, ppk=No
         "!2m3!1f0!2f0!3f0!3m2!1i1121!2i933!4f13.1",
 
         # paging
-        "!7i20!10b1",
+        f"!7i{perpage}!10b1",
 
         # 12m26
         "!12m26!1m5!18b1!30b1!31m1!1b1!34e1!2m4!5m1!6e2!20e3!39b1!10b1!12b1!13b1"
@@ -96,12 +108,45 @@ def build_pb(lat, lng, perpage:int=10, limit:int=None, next_session=None, ppk=No
 
     pb = "".join(PB_PARTS)
     j = pb_nested.decode_tree(pb)
-    if next_session and ppk:
-        d = [None,[3,None,None,"Buka+sekarang",1,None,None,None,next_session,[None,None,[1]]],[3],"IAE"]
-        j[49][0] = d
-        j[58] = ppk
-    pb = pb_nested.encode(j)
-    return pb
+
+    # Offset pagination: an extra top-level !8i<offset> field between the
+    # page-size field (7) and the "10b1" marker selects the result window.
+    # offset 0 -> first page, offset == perpage -> second page, etc.
+    if offset:
+        _insert_after(j, 7, [8, "i", int(offset)])
+
+    # Continuation tokens: the search reply hands back a session token
+    # (data[66]) and a ppk (data[35]). They go into field 50 (sub-field 1)
+    # and field 59 respectively.
+    if next_session:
+        f50 = _field(j, 50)
+        session_group = [
+            1, "m", [
+                [2, "m", [
+                    [1, "u", 3],
+                    [4, "s", "Buka sekarang"],
+                    [5, "e", 1],
+                    [9, "s", next_session],
+                    [10, "m", [[3, "m", [[1, "e", 1]]]]],
+                ]],
+                [3, "m", [[1, "u", 3]]],
+                [4, "B", "IAE"],
+            ],
+        ]
+        if f50 is not None:
+            f50[2].insert(0, session_group)
+        else:
+            j.append([50, "m", [
+                session_group,
+                [2, "e", 2],
+                [3, "m", [[1, "b", 1], [3, "b", 1]]],
+            ]])
+        if ppk:
+            _insert_after(j, 50, [59, "B", ppk])
+    elif ppk:
+        _insert_after(j, 50, [59, "B", ppk])
+
+    return pb_nested.encode(j)
 
 def parse_search_response(data: list) -> dict:
     if len(data) != 72:
@@ -109,25 +154,25 @@ def parse_search_response(data: list) -> dict:
     places = data[64] if utils.has_index(data, 64) and isinstance(data[64], list) else []
     palces_data = []
     for place in places:
-        pd = place[1]
-        place_entry = parse_place_field(pd)
+        try:
+            pd = place[1]
+            place_entry = parse_place_field(pd)
+        except (IndexError, TypeError, ValueError):
+            # Some slots carry non-place records (street-view / business cards)
+            # whose shape is not a 260/177 field place. Skip them.
+            continue
         palces_data.append(place_entry)
-    next_session = data[66]
-    ppk_session = data[35]
+    next_session = data[66] if utils.has_index(data, 66) else None
+    ppk_session = data[35] if utils.has_index(data, 35) else None
     return  {"places": palces_data, "n": next_session, "ppk": ppk_session}
 
 
-def search(query, pb=None, lat=None, lon=None, lang="id", session=None,
-           retries: int = 3, retry_delay: float = 0.7) -> list[Place]:
-    """One `tbm=map` search returning a list of :class:`Place`.
+SEARCH_URL = "https://www.google.com/search"
 
-    Google is non-deterministic: the same request may return a suggestion
-    stub, a skeleton result set, or the full result set. We retry while the
-    response contains no place records so callers get stable output.
 
-    `session` is an optional ``requests``/``curl_cffi`` session owned by the
-    caller; when omitted a fresh browser-impersonating session is used.
-    """
+def _search_params(query, pb=None, lat=None, lon=None, lang="id",
+                   perpage: int = 20, offset: int = 0,
+                   next_session=None, ppk=None) -> dict:
     params = {
         "tbm": "map",
         "authuser": 0,
@@ -141,20 +186,169 @@ def search(query, pb=None, lat=None, lon=None, lang="id", session=None,
         # serialized once, so decode to avoid double-encoding on the wire.
         params["pb"] = unquote(pb)
     elif lat is not None and lon is not None:
-        params["pb"] = build_pb(lat, lon)
+        params["pb"] = build_pb(lat, lon, perpage=perpage, offset=offset,
+                                next_session=next_session, ppk=ppk)
     else:
         d_lat, d_lon, _ = utils.get_default_centroid()
-        params["pb"] = build_pb(d_lat, d_lon)
+        params["pb"] = build_pb(d_lat, d_lon, perpage=perpage, offset=offset,
+                                next_session=next_session, ppk=ppk)
+    return params
+
+
+def search(query, pb=None, lat=None, lon=None, lang="id", session=None,
+           perpage: int = 20, offset: int = 0, next_session=None, ppk=None,
+           retries: int = 3, retry_delay: float = 0.7) -> dict:
+    """One `tbm=map` search returning ``{"places", "n", "ppk"}``.
+
+    Pagination is offset based: pass ``offset=perpage`` for the second page,
+    ``offset=perpage*2`` for the third, and so on. The reply also carries a
+    continuation session token (``n``) and a ppk which, when fed back through
+    ``next_session``/``ppk``, reproduce the exact request Google emits for the
+    next page.
+
+    Google is non-deterministic: the same request may return a suggestion
+    stub, a skeleton result set, or the full result set. We retry while the
+    response contains no place records so callers get stable output.
+
+    `session` is an optional ``requests``/``curl_cffi`` session owned by the
+    caller; when omitted a fresh browser-impersonating session is used.
+
+    For fetching every page until Google's limit, prefer :func:`search_all`.
+    """
+    params = _search_params(query, pb, lat, lon, lang, perpage, offset,
+                            next_session, ppk)
     sess = utils.get_browser_session("https://www.google.com/maps")
     getter = sess.get if session is None else session.get
-    resp = getter("https://www.google.com/search", params=params)
-    norm = utils.normalize_raw_response(resp)
-    places = parse_search_response(norm)
-    
-    print(places)
-    # return search_result
+    for attempt in range(max(1, retries)):
+        resp = getter(SEARCH_URL, params=params)
+        norm = utils.normalize_raw_response(resp)
+        result = parse_search_response(norm)
+        if result and result["places"]:
+            return result
+        time.sleep(retry_delay)
+    return result
+
+
+async def asearch_page(sess, query, pb=None, lat=None, lon=None, lang="id",
+                       perpage: int = 20, offset: int = 0, next_session=None,
+                       ppk=None, retries: int = 3,
+                       retry_delay: float = 0.7) -> dict:
+    """Fetch a single result page over an existing :class:`AsyncSession`.
+
+    Retries only malformed replies (a valid 72-field reply with an empty result
+    slot is Google's end-of-results marker, not an error).
+    """
+    params = _search_params(query, pb, lat, lon, lang, perpage, offset,
+                            next_session, ppk)
+    result = None
+    for attempt in range(max(1, retries)):
+        resp = await sess.get(SEARCH_URL, params=params)
+        result = parse_search_response(utils.normalize_raw_response(resp))
+        if result is not None:
+            return result
+        await asyncio.sleep(retry_delay)
+    return result
+
+
+async def search_all(query, lat=None, lon=None, lang="id", perpage: int = 20,
+                     max_results=None, session=None, next_session=None,
+                     ppk=None, dedupe: bool = True, concurrency: int = 12,
+                     page_delay: float = 0.0, retries: int = 3,
+                     retry_delay: float = 0.7, on_page=None) -> list[Place]:
+    """Fetch every page of a `tbm=map` search until Google stops returning results.
+
+    Pagination is offset based, so pages are independent and can be fetched in
+    parallel. Pages are dispatched in batches of ``concurrency`` over a single
+    continuous :class:`curl_cffi.requests.AsyncSession` (one cookie jar, one
+    TLS session), which is dramatically faster than fetching them one by one.
+
+    Args:
+        query: text query.
+        lat/lon: map center for the viewport / result window.
+        lang: ``hl``/``gl`` language.
+        perpage: results per page (Google honors this up to ~20).
+        max_results: hard cap on returned places; ``None`` = Google's limit.
+        session: optional pre-existing ``AsyncSession`` (caller owns it);
+                 when omitted one is created and closed here.
+        next_session/ppk: continuation state to resume from a prior search;
+                 applied to the first page only.
+        dedupe: drop places already seen (Google repeats results across pages).
+        concurrency: number of pages fetched in parallel per batch.
+        page_delay: optional sleep between batches (be gentle).
+        retries/retry_delay: retry a page while it returns no place records.
+        on_page: optional ``fn(offset, added, total)`` progress callback.
+
+    Returns:
+        A list of :class:`~mapsfiacore.models.places.Place`.
+    """
+    owns_session = session is None
+    sess = session or AsyncSession(impersonate="chrome146")
+    try:
+        if owns_session:
+            await sess.get("https://www.google.com/maps/")
+            await asyncio.sleep(2)
+
+        places: list[Place] = []
+        seen: set = set()
+        offset = 0
+
+        while max_results is None or len(places) < max_results:
+            batch = concurrency
+            if max_results is not None:
+                remaining = max_results - len(places)
+                batch = min(batch, -(-remaining // perpage))
+            offsets = [offset + i * perpage for i in range(batch)]
+            pages = await asyncio.gather(*[
+                asearch_page(
+                    sess, query, lat=lat, lon=lon, lang=lang, perpage=perpage,
+                    offset=off,
+                    next_session=next_session if off == 0 else None,
+                    ppk=ppk if off == 0 else None,
+                    retries=retries, retry_delay=retry_delay,
+                )
+                for off in offsets
+            ])
+
+            stop = False
+            for off, page in zip(offsets, pages):
+                if not page or not page["places"]:
+                    # Empty page = Google's limit for this offset; later
+                    # offsets are beyond it too.
+                    stop = True
+                    continue
+
+                added = 0
+                for place in page["places"]:
+                    if max_results is not None and len(places) >= max_results:
+                        stop = True
+                        break
+                    key = place.fid or place.place_id or place.name
+                    if dedupe and key in seen:
+                        continue
+                    seen.add(key)
+                    places.append(place)
+                    added += 1
+
+                if on_page:
+                    on_page(off, added, len(places))
+                if stop:
+                    break
+
+            if stop:
+                break
+
+            offset += concurrency * perpage
+            if page_delay:
+                await asyncio.sleep(page_delay)
+
+        return places
+    finally:
+        if owns_session:
+            await sess.close()
 
 
 if __name__ == "__main__":
-    for place in search("kopi"):
-        print(place)
+    places = asyncio.run(search_all("kopi", lat=-6.252849, lon=106.9183385))
+    print(f"{'No.':<4} {'Maps URL': <50} {'Place Name': <40} {'Rating': <5} {'Review Count'}")
+    for n, place in enumerate(places, 1):
+        print(f"{n: <4} {place.maps_url: <50} {place.name: <40} {place.rating: <5} ({place.review_count})")

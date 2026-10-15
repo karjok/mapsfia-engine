@@ -1,7 +1,9 @@
-from mapsfiacore.cores.get_review_2 import get_reviews
+# from mapsfiacore.cores.old.get_review_2 import get_reviews
 from mapsfiacore.cores.get_suggestions import get_suggestions
-from mapsfiacore.cores.get_place import get_place_data
-from mapsfiacore.cores.get_search import search 
+from mapsfiacore.apis.place import get_place_data
+from mapsfiacore.cores.get_search import search, search_all
+from mapsfiacore.cores.get_review import get_reviews
+from mapsfiacore.parsers import reviews as review_parser
 from dataclasses import asdict
 from mapsfiacore.utils.utils import get_bgkey, get_browser_session
 from mapsfiacore.cores.get_geojson import Geojson
@@ -42,8 +44,17 @@ def geo():
 def rev(fid=None, perpage=1):
     fid = fid or "0x2e69f7ff76b9ec33:0xae1cf5d8abdf9bbb"
     ov = get_place_review_overview(fid)
-    d = asyncio.run(get_place_reviews(fid, perpage=perpage, sort_by="newest"))
-    print(d)
+    print(ov)
+    perpage = ov.review_count
+    reviews = []
+    res = asyncio.run(get_place_reviews(fid, perpage=perpage, sort_by="newest"))
+    reviews.extend(res["reviews"])
+    while res["np"] and len(reviews) < perpage:
+        res = asyncio.run(get_place_reviews(fid, perpage=perpage, sort_by="newest", pagination_token=res["np"]))
+        reviews.extend(res["reviews"])
+    dj = {"reviews": [asdict(i) for i in reviews], "c": len(reviews)}
+    json.dump(dj, open(f"{fid}-{ov.name}.json", "w"))
+    print(dj)
 
 def pbb():
     params = {
@@ -56,5 +67,26 @@ def pbb():
     f = get_freq(pb)
     print(f)
     g = asyncio.run(fetch_batchexecute("https://www.google.com/maps/_/MapsWizUi/data/batchexecute", freq=f, params=params))
+
+def find(q):
+    s = asyncio.run(search_all(q, concurrency=3))
+    d = [asdict(i) for i in s]
+    json.dump(d, open(q,"w"))
+    print(len(d))
+
+def rev2(fid=None, place_id=None):
+    fid = fid if fid else "0x2e699300413f358f:0xe29080fa0f4f070f"
+
+    place_id = place_id if place_id else "ChIJjzU_QQCTaS4RDwdPD_qAkOI"
+    ov = get_place_review_overview(fid)
+    print(ov)
+    reviews = asyncio.run(get_reviews(fid=fid, place_id=place_id, max_count=100))
+    # print(reviews, len(reviews))
+
+
 if __name__ == "__main__":
-    test(sys.argv[1])
+    # find(sys.argv[1])
+    # geo()
+    # print("fetch reviews")
+    rev(input("fid"))
+    # rev2()

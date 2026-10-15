@@ -42,16 +42,20 @@ class PlaceReviewAspectOption:
 @dataclass
 class PlaceReviewAspect:
     aspect_key: Optional[str] =  None
+    aspect_question: Optional[str] = None
     aspect_label: Optional[str] =  None
     aspect_point: Optional[int] =  None
     aspect_option: Optional[PlaceReviewAspectOption] =  None
 
 @dataclass
 class PlaceReview:
+    fid: Optional[str] = None
     review_id: Optional[str] =  None
     review_timestamp: Optional[int] =  None
+    review_like_count: Optional[int] = None
     review_time_relative: Optional[str] =  None
     review_rating: Optional[float] =  None
     review_user: Optional[PlaceReviewUserProfile] =  None
     review_media: Optional[list] =  None
     review_string: Optional[str] =  None
+    review_aspects: Optional[PlaceReviewAspect] = None

@@ -13,6 +13,7 @@ from mapsfiacore.models.globals import (
     PlaceReviewAspect, PhotoUrls
 )
 from mapsfiacore.utils import utils
+from mapsfiacore.utils import vars
 from datetime import datetime
 
 from typing import Optional
@@ -49,15 +50,20 @@ def _dig(node, *path, default=None):
     return node
 
 def parse_user_field(data:list) -> Optional[User]:
+
+    user_filed = utils.scan_signature(data, *vars.AUTHOR_SIGN)
+    if not user_filed:
+        return None
+    data = user_filed[0]
     user_data = {
-            "name": data[5][0],
-            "id": int(data[5][3]),
-            "review_count": data[5][5],
-            "photo_count": data[5][6],
-            "rating_count": data[5][9],
-            "local_guide_level": data[5][8][1],
-            "profile_picture": _generate_photo_urls(data[5][1]),
-            "photos_contributions_url": data[5][2][0],
+            "name": data[0],
+            "id": int(data[3]),
+            "review_count": data[5],
+            "photo_count": data[6],
+            "rating_count": data[9],
+            "local_guide_level": data[8][1],
+            "profile_picture": _generate_photo_urls(data[1]),
+            "photos_contributions_url": data[2][0],
             "contributions_url": data[2][0],
         }
     user = User(**user_data)
@@ -645,7 +651,7 @@ def parse_rating_field(data:list):
 
     review_data = {
         "rating_count": data[0][0],
-        "rating_photos": photos,
+        "rating_media": photos,
         "rating_aspects": aspects,
         "rating_languages": av_langs,
         "rating_strings": av_strings
@@ -792,7 +798,7 @@ def parse_place_reviews(data:list) -> list[PlaceReview]:
                 "review_time_relative": time_relative,
                 "review_rating": rating_star,
                 "review_user": reviewer,
-                "review_photos": review_images,
+                "review_media": review_images,
                 "review_string": review_string
             }
             review_data = PlaceReview(**review_data)

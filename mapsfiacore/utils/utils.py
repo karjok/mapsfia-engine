@@ -14,6 +14,19 @@ def has_index(l:list, i:int)-> bool:
         return True
     except:
         return False
+
+def get_signature(data:list):
+    sig_map = {
+        "str": str,
+        "int": int,
+        "list": list,
+        "dict": dict,
+        "float": float,
+        "NoneType": None,
+    }
+    sig = [sig_map[type(sig).__name__] for sig in data]
+    return sig
+
 def scan_root(d, sign):
     candidate = []
 
@@ -151,12 +164,17 @@ def get_bgkey(fid, place_id, pagination=""):
         raise RuntimeError(r.stderr.strip())
     return r.stdout.strip()
 
+def gen_bgkey(FID, PLACE_ID, pagination_token="", tries=8):
+    for _ in range(tries):
+        try:
+            return get_bgkey(FID, PLACE_ID, pagination_token)
+        except RuntimeError:
+            pass
+    raise RuntimeError("could not generate x-maps-bgkey")
+
 def normalize_raw_response(response:Union[str, Response])->list:
     resp = []
-    if isinstance(response, Response):
-        text = response.text
-    else:
-        text = response
+    text = response.text if isinstance(response, Response) else response
     try:
         if text.endswith('/*""*/'):
             resp = text.replace('/*""*/','')
@@ -165,8 +183,7 @@ def normalize_raw_response(response:Union[str, Response])->list:
         resp = text.replace(")]}'\n", "")
         resp = json.loads(resp)
     except Exception as e:
-        print(f"{text}: Failed normalize the response")
-        return []
+        print(f"{text}: Failed normalize the response: {e}")
     return resp
 def normalize_search_raw_response(response:Union[str, Response]):
     if isinstance(response, Response):

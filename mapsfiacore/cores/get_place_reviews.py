@@ -1,6 +1,7 @@
 import asyncio
 from mapsfiacore.utils.utils import get_candidate_from_data
 from mapsfiacore.utils import field_parser
+from mapsfiacore.parsers import reviews as review_parser
 import json
 from typing import Literal, Optional
 from mapsfiacore.utils import batchexecute
@@ -46,8 +47,8 @@ async def get_place_reviews(fid:str, hl:str="id", gl:str="id", perpage:int=10, p
     data = await batchexecute.fetch_batchexecute(url, freq=f_req, params=params, sess=sess)
     can = get_candidate_from_data(data)
     rev_data = json.loads(can[2])
-    print(json.dumps(rev_data))
     pagination = rev_data[-1]
     reviews = field_parser.parse_place_reviews(rev_data)
+    # reviews = review_parser.review_parser(rev_data, fid)
     result = {"reviews": reviews, "np": pagination, "c": len(reviews)}
     return result
