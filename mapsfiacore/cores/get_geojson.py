@@ -36,13 +36,10 @@ from typing import Any, Optional
 from shapely.geometry import shape, mapping
 from shapely.ops import unary_union
 
-from mapsfiacore.base import MapsFiaBase, run_sync
-
 XOR = 0x9B
 DEFAULT_ZOOM_RANGE = (6, 11)
 MAX_CONCURRENCY = 10
 HTTP_TIMEOUT = 30
-UA = MapsFiaBase._default_user_agent()
 _XOR_TABLE = bytes(i ^ XOR for i in range(256))
 
 _FID_RE = re.compile(r"!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)")

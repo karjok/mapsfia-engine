@@ -1,13 +1,13 @@
-from mapsfiacore.models.user import User
-from mapsfiacore.models.photos import Photo, Video
-from mapsfiacore.models.aspects import Aspect, AspectOption
-from mapsfiacore.models.rating import Rating, Review
-from mapsfiacore.models.suggestion import Suggestion
-from mapsfiacore.models.places import (
+from mapsfiacore.models.models import User
+from mapsfiacore.models.models import Photo, Video
+from mapsfiacore.models.models import Aspect, AspectOption
+from mapsfiacore.models.models import Rating, Review
+from mapsfiacore.models.models import Suggestion
+from mapsfiacore.models.models import (
     Place, Website, Phone, Accessibility,
     OpeningHours, OpeningHoursStatus, AddressComponents, StreetView, Owner,
 )
-from mapsfiacore.models.globals import (
+from mapsfiacore.models.models import (
     PlaceReview, PlaceReviewOverview, PlaceReviewPhoto,
     PlaceReviewUserProfile, PlaceReviewAspectOption,
     PlaceReviewAspect, PhotoUrls

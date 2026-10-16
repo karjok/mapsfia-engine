@@ -4,7 +4,6 @@ import json
 from curl_cffi.requests import AsyncSession
 
 from mapsfiacore.utils import utils
-from mapsfiacore.utils import batchexecute
 from mapsfiacore.parsers import reviews as parser
 
 # source-path is not required to be exact; a minimal one is enough.
@@ -36,7 +35,7 @@ def build_freq(FID, PLACE_ID, pagination_token="", perpage=10):
         None,
         [1],
     ]
-    return batchexecute.get_freq(payload, rpcid=RPCID)
+    return utils.generate_batchexecute_freq(payload, rpcid=RPCID)
 
 
 def gen_bgkey(FID, PLACE_ID, pagination_token="", tries=8):

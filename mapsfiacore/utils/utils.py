@@ -7,6 +7,7 @@ import re
 import math
 import time
 import random, string
+from urllib.parse import urlencode
 
 def has_index(l:list, i:int)-> bool:
     try:
@@ -120,7 +121,7 @@ async def get_browser_asyncsession(init=None):
         time.sleep(2)
     return s
 
-def _encode_plus_code(lat: float, lng: float, digits: int = 10) -> str:
+def encode_plus_code(lat: float, lng: float, digits: int = 10) -> str:
         """Global Open Location Code. digits=10 -> 'XXXXXXXX+XX', digits=11 -> 'XXXXXXXX+XXX'."""
         _OLC = "23456789CFGHJMPQRVWX"
         lat = min(max(lat, -90.0), 90.0) + 90.0
@@ -210,3 +211,17 @@ def get_candidate_from_data(data:list, iter_count=1):
         c = c[candidate[0]]
         state += 1
     return c
+
+def generate_batchexecute_freq(payload:list, rpcid=""):
+    freq_payloads_json = json.dumps(payload, separators=(",",":"))
+    freq_data = [[[
+        rpcid,
+        freq_payloads_json,
+        None,
+        "generic"
+    ]]]
+    freq_data_json = json.dumps(freq_data, separators=(",",":"))
+    freq = {
+        "f.req": freq_data_json
+    }
+    return urlencode(freq)
