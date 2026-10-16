@@ -33,6 +33,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from shapely.geometry import shape, mapping
+from shapely.ops import unary_union
+
 from mapsfiacore.base import MapsFiaBase, run_sync
 
 XOR = 0x9B
@@ -415,8 +418,6 @@ class Geojson(MapsFiaBase):
             for p in glob.glob("/home/*/.local/share/uv/tools/pip/lib/python3.12/site-packages"):
                 if p not in sys.path:
                     sys.path.insert(0, p)
-            from shapely.geometry import shape, mapping
-            from shapely.ops import unary_union
             if not features:
                 return features
             merged = unary_union([shape(f["geometry"]) for f in features])
